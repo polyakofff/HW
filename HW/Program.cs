@@ -1,122 +1,104 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace HW {
+    delegate void ErrorNotificationType(string message);
+
     class Program {
 
-        delegate double MathOperation(double a, double b);
-        static Dictionary<string, MathOperation> operations = new Dictionary<string, MathOperation>{
-            {"+", (a, b) => a + b },
-            {"-", (a, b) => a - b },
-            {"*", (a, b) => a * b },
-            {"/", (a, b) => a / b },
-            {"^", Math.Pow }
-        };
+        private static string error;
+
+        private static List<string> ReadLines(string file) {
+            List<string> lines = new List<string>();
+            try {
+                using (StreamReader sr = new StreamReader(file, Encoding.UTF8)) {
+                    string line = "";
+                    while ((line = sr.ReadLine()) != null) {
+                        line = Regex.Replace(line, @"\u00A0", " ");
+                        lines.Add(line);
+                    }
+                }
+            } catch (Exception ex) {
+                Console.WriteLine(ex.Message);
+            }
+
+            return lines;
+        }
+
+        private static void WriteLines(List<string> lines, string file) {
+            try {
+                using (StreamWriter sw = new StreamWriter(file, false)) {
+                    lines.ForEach(line => sw.WriteLine(line));
+                }
+            } catch (Exception ex) {
+                Console.WriteLine(ex.Message);
+            }
+        }
+
+        private static void ConsoleErrorHandler(string message) {
+            string time = DateTime.Now.Hour + ":" + DateTime.Now.Minute + ":" + DateTime.Now.Second;
+            Console.WriteLine(message + "\n" + time + "\n");
+        }
+
+        private static void ResultErrorHandler(string message) {
+            switch (message) {
+                case "не число":
+                    error = "не число";
+                    break;
+                case "неверный оператор":
+                    error = "неверный оператор";
+                    break;
+                case "bruh":
+                    error = "bruh";
+                    break;
+            }
+        }
 
         static void Main(string[] args) {
-            Console.WriteLine(Calculate("16,3625 ^ 12,95208"));
+            Console.OutputEncoding = Encoding.UTF8;
 
-            List<string> answers = new List<string>();
-            try {
-                using (StreamReader sr = new StreamReader("expressions.txt")) {
-                    string line = "";
-                    while ((line = sr.ReadLine()) != null) {
-                        double res = Calculate(line);
-                        answers.Add(res.ToString("#0.000"));
-                    }
+            Calculator calculator = new Calculator();
+            calculator.ErrorNotification += ConsoleErrorHandler;
+            calculator.ErrorNotification += ResultErrorHandler;
+
+            List<string> exps = ReadLines("expressions.txt");
+            List<string> myAnswers = new List<string>();
+            for (int i = 0; i < exps.Count; i++) {
+                double res = calculator.Calculate(exps[i]);
+                if (double.IsNaN(res)) {
+                    myAnswers.Add(error);
+                } else {
+                    myAnswers.Add(res.ToString("#0.000"));
                 }
-            } catch (Exception ex) {
-                Console.WriteLine(ex.Message);
-            }
-            try {
-                using (StreamWriter sw = new StreamWriter("answers.txt", false)) {
-                    foreach (string s in answers) {
-                        sw.WriteLine(s);
-                    }
-                }
-            } catch (Exception ex) {
-                Console.WriteLine(ex.Message);
             }
 
+            WriteLines(myAnswers, "myAnswers.txt");
 
-            List<string> results = new List<string>();
-            int cntErr = 0;
-            try {
-                using (StreamReader sr = new StreamReader("expressions_checker.txt")) {
-                    int i = 0, errCnt = 0;
-                    string line = "";
-                    while ((line = sr.ReadLine()) != null) {
-                        if (answers[i] == line) {
-                            results.Add("OK");
-                        } else {
-                            results.Add("Error");
-                            cntErr++;
-                        }
-                        i++;
-                    }
+            List<string> answers = ReadLines("expressions_checker.txt");
+
+            List<string> differences = new List<string>();
+            int numOfErrors = 0;
+            for (int i = 0; i < myAnswers.Count; i++) {
+                if (myAnswers[i].Equals(answers[i])) {
+                    differences.Add("OK");
+                } else {
+                    differences.Add("Error");
+                    numOfErrors++;
                 }
-            } catch (Exception ex) {
-                Console.WriteLine(ex.Message);
             }
-            try {
-                using (StreamWriter sw = new StreamWriter("results.txt", false)) {
-                    foreach (string s in results) {
-                        sw.WriteLine(s);
-                    }
-                    sw.WriteLine(cntErr);
-                }
-            } catch (Exception ex) {
-                Console.WriteLine(ex.Message);
-            }
+            differences.Add(numOfErrors.ToString());
+
+            WriteLines(differences, "differences.txt");
+
+
+            Console.WriteLine(myAnswers[135].Equals(answers[135]));
 
 
             Console.ReadKey();
-        }
-
-        private static double Calculate(string exp) {
-            string[] ss = exp.Split();
-
-            // Перевод в обратную польскую запись
-            List<string> rpn = new List<string>();
-            Stack<string> st1 = new Stack<string>();
-            bool IsOp(string s) => (s == "+" || s == "-" || s == "*" || s == "/" || s == "^") ? true : false;
-            int Prior(string op) => (op == "+" || op == "-") ? 1 : (op == "*" || op == "/") ? 2 : (op == "^") ? 3 : 0;
-            foreach (string s in ss) {
-                if (s == "(") {
-                    st1.Push(s);
-                } else if (s == ")") {
-                    while (st1.Peek() != "(") {
-                        rpn.Add(st1.Pop());
-                    }
-                    st1.Pop();
-                } else if (IsOp(s)) {
-                    while (st1.Count > 0 && Prior(st1.Peek()) >= Prior(s)) {
-                        rpn.Add(st1.Pop());
-                    }
-                    st1.Push(s);
-                } else {
-                    rpn.Add(s);
-                }
-            }
-            while (st1.Count > 0) {
-                rpn.Add(st1.Pop());
-            }
-
-            // Вычисление
-            Stack<double> st2 = new Stack<double>();
-            foreach (string s in rpn) {
-                if (IsOp(s)) {
-                    double b = st2.Pop();
-                    double a = st2.Pop();
-                    st2.Push(operations[s](a, b));
-                } else {
-                    st2.Push(double.Parse(s));
-                }
-            }
-            double res = st2.Pop();
-
-            return res;
         }
     }
 }
